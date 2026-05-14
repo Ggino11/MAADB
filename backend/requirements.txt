@@ -1,0 +1,5 @@
+pymongo
+neo4j
+pandas
+fastapi
+uvicorn

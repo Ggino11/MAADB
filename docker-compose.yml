@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: maadb-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5.12
+    container_name: maadb-neo4j
+    ports:
+      - "7474:7474" # Browser Web Interface (HTTP)
+      - "7687:7687" # Bolt connection (usata dal codice)
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:

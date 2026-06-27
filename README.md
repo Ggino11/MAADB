@@ -103,44 +103,6 @@ App disponibile su `http://localhost:5173`
 
 ## Struttura della Repository
 
-```
-MAADB/
-├── docker-compose.yml          # Orchestrazione MongoDB + Neo4j
-├── dataset/raw/                # Dataset CSV generato da FinBench
-│
-├── backend/
-│   ├── main.py                 # FastAPI app — tutte le route principali
-│   ├── database.py             # Gestione connessioni MongoDB e Neo4j
-│   ├── ingestion_mongo.py      # ETL: carica CSV in MongoDB
-│   ├── ingestion_neo4j.py      # ETL: carica CSV nel grafo Neo4j
-│   ├── test_db.py              # Script di test delle connessioni ai DB
-│   ├── requirements.txt        # Dipendenze Python
-│   └── routes/
-│       └── flagged.py          # Router CRUD per gli account flaggati
-│
-└── frontend/App/src/
-    ├── App.tsx                 # Routing React (BrowserRouter + Routes)
-    ├── main.tsx                # Entry point React
-    ├── index.css               # Stili globali dark theme
-    ├── api/
-    │   └── client.ts           # Client HTTP centralizzato (fetchJSON, postJSON)
-    ├── context/
-    │   └── SuggestionsContext.tsx  # Context globale: carica i dati per le dropdown
-    ├── components/
-    │   ├── Sidebar.tsx         # Navigazione laterale con badge DB
-    │   ├── SearchableSelect.tsx # Dropdown con ricerca testuale
-    │   └── GraphViewer.tsx     # Componente grafo (vis-network)
-    └── pages/
-        ├── Home.tsx            # Dashboard iniziale con stats e card query
-        ├── Explore.tsx         # Pagina esplorazione entità con tab
-        ├── PersonLookup.tsx    # Query L1: anagrafica persona
-        ├── TransferChain.tsx   # Query L2: catena trasferimenti
-        ├── CompanyPortfolio.tsx # Query L3: portafoglio azienda
-        ├── CompanyStats.tsx    # Query A1: statistiche aziende per nazione
-        ├── ShortestPath.tsx    # Query A2: shortest path tra account
-        ├── LaunderingCycle.tsx # Query A3: ciclo sospetto di riciclaggio
-        └── FlaggedAccounts.tsx # CRUD investigazioni salvate
-```
 
 ---
 

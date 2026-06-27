@@ -6,7 +6,7 @@ MONGO_URI = "mongodb://root:password@localhost:27017/"
 MONGO_DB_NAME = "maadb"
 
 NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "password")
+NEO4J_AUTH = ("neo4j", "password1234")
 
 class Database:
     def __init__(self):

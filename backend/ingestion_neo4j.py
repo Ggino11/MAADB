@@ -4,7 +4,7 @@ from neo4j import GraphDatabase
 
 # Costanti e Percorsi
 NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "password")
+NEO4J_AUTH = ("neo4j", "password1234")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "dataset", "raw"))
 

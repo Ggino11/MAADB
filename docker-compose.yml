@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:6.0
@@ -20,7 +18,7 @@ services:
       - "7474:7474" # Browser Web Interface (HTTP)
       - "7687:7687" # Bolt connection (usata dal codice)
     environment:
-      NEO4J_AUTH: neo4j/password
+      NEO4J_AUTH: neo4j/password1234
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
     volumes:

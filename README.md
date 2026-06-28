@@ -37,7 +37,7 @@ Il sistema analizza il dataset sintetico [LDBC FinBench](https://github.com/ldbc
 | Aggregazioni statistiche per nazione | ✅ (Aggregation Pipeline) | — |
 | Shortest path tra conti | — | ✅ (shortestPath algo) |
 | Rilevamento di cicli chiusi | — | ✅ (pattern matching) |
-| Investigazioni salvate (flagged) | ✅ | — |
+| Ricerca testuale asincrona dei profili | ✅ ($regex) | — |
 
 ---
 
@@ -64,7 +64,7 @@ I container avviati sono:
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.\.venv\Scripts\activate      # Windows
 pip install -r backend/requirements.txt
 ```
 
@@ -101,11 +101,6 @@ App disponibile su `http://localhost:5173`
 
 ---
 
-## Struttura della Repository
-
-
----
-
 ## Dettaglio dei File
 
 ### Backend
@@ -119,7 +114,7 @@ Gestisce le due connessioni in modo centralizzato:
 Le connessioni vengono aperte all'avvio FastAPI (`startup_event`) e chiuse allo spegnimento (`shutdown_event`).
 
 #### `main.py`
-Cuore dell'applicazione. Contiene tutte le route API raggruppate in tre categorie:
+Cuore dell'applicazione. Contiene tutte le route API raggruppate in categorie:
 
 | # | Funzione | Endpoint | Tipo DB |
 |---|---|---|---|
@@ -129,7 +124,7 @@ Cuore dell'applicazione. Contiene tutte le route API raggruppate in tre categori
 | A1 | `get_companies_stats` | `GET /api/analytics/companies/stats` | MongoDB |
 | A2 | `get_shortest_path` | `GET /api/analytics/network/shortest-path` | Neo4j |
 | A3 | `get_suspicious_cycle` | `GET /api/analytics/suspicious-cycle/{id}` | Cross-DB |
-| — | `get_suggestions` | `GET /api/suggestions` | Cross-DB |
+| — | `search_entity` | `GET /api/search/{entity_type}?q=...` | Cross-DB/Mongo |
 | — | `get_home_stats` | `GET /api/home/stats` | MongoDB |
 
 **Helper `mixed_ids(str_ids)`**: funzione di utilità che, data una lista di ID stringa, restituisce anche le versioni intere. Necessaria per interrogare MongoDB, che può avere gli ID salvati come `int` o `str` a seconda del CSV originale.
@@ -137,15 +132,6 @@ Cuore dell'applicazione. Contiene tutte le route API raggruppate in tre categori
 > ⚠️ **Nota su Neo4j e gli ID**: tutti gli ID sono importati come *stringhe* in Neo4j. La funzione `parse_id()` (conversione a `int`) è stata quindi rimossa perché superflua e causa di `404` sulle query al grafo.
 
 > ⚠️ **Nota su `hops` e `depth`**: Cypher non supporta parametri (`$var`) come lunghezza di cammino (`*1..$hops`). Questi valori vengono pertanto iniettati nell'f-string Python prima di inviare la query, come documentato inline nel codice.
-
-#### `routes/flagged.py`
-Router separato con prefisso `/api/flagged`. Gestisce la persistenza delle investigazioni salvate dall'investigatore in una collezione MongoDB dedicata (`flagged_accounts`).
-
-| Metodo | Endpoint | Azione |
-|---|---|---|
-| `POST` | `/api/flagged/` | Crea o aggiorna un flag su un account |
-| `GET` | `/api/flagged/` | Lista tutti gli account flaggati |
-| `DELETE` | `/api/flagged/{id}` | Rimuove il flag |
 
 #### `ingestion_mongo.py`
 Script ETL standalone. Per ciascuna entità (`person`, `company`, `account`):
@@ -168,75 +154,49 @@ I dati vengono inviati a Neo4j in batch da 1000 record tramite `session.execute_
 Client HTTP centralizzato. Espone due funzioni base (`fetchJSON`, `postJSON`) e l'oggetto `api` con tutti i metodi della dashboard:
 
 ```typescript
+api.searchEntities(type, q)            // → GET /api/search/{type}?q=...
 api.getPerson(id)                      // → GET /api/lookup/person/{id}
-api.getTransferChain(id, hops)         // → GET /api/lookup/account/{id}/transfers
+api.getTransferChain(id, hops)         // → GET /api/lookup/account/{id}/transfers?hops=...
 api.getCompanyPortfolio(id)            // → GET /api/lookup/company/{id}/portfolio
 api.getCompanyStats()                  // → GET /api/analytics/companies/stats
 api.getShortestPath(from, to)          // → GET /api/analytics/network/shortest-path
-api.getLaunderingCycle(id, depth)      // → GET /api/analytics/suspicious-cycle/{id}
-api.getFlagged()                       // → GET /api/flagged/
-api.flagAccount(body)                  // → POST /api/flagged/
-api.removeFlag(id)                     // → DELETE /api/flagged/{id}
+api.getLaunderingCycle(id, depth)      // → GET /api/analytics/suspicious-cycle/{id}?depth=...
 ```
 
 Il Vite dev-server fa da proxy verso `localhost:8000`, quindi le chiamate usano path relativi (`/api/...`).
 
-#### `context/SuggestionsContext.tsx`
-Context React che al mount dell'app chiama `GET /api/suggestions` e mette a disposizione globalmente le liste di persone, aziende e account. Queste alimentano le dropdown `SearchableSelect` in tutte le pagine di query, evitando di ri-fetchare i dati ad ogni navigazione.
-
 #### `components/Sidebar.tsx`
-Navigazione laterale. Ogni link ha un badge colorato che indica quale database viene interrogato (`MongoDB`, `Neo4j`, `Cross`).
+Navigazione laterale. Ogni tab corrisponde ad un pannello nella Dashboard (L1, L2, ecc). Ogni link ha un badge colorato che indica quale database viene interrogato (`MongoDB`, `Neo4j`, `Cross`).
 
 #### `components/SearchableSelect.tsx`
-Dropdown con filtro testuale. Accetta le props `options`, `value`, `onSelect` e `placeholder`. Usata in tutte le pagine di query per selezionare l'entità da interrogare.
+Componente asincrono avanzato (basato su `react-select/async`). Sostituisce i classici dropdown filtrando dinamicamente i risultati con debounce (300ms) interagendo con la route `/api/search/`. L'utente digita il nome testualmente, il menu mostra i risultati pertinenti e salva segretamente l'ID esatto per le query di grafo.
 
 #### `components/GraphViewer.tsx`
-Wrapper attorno alla libreria `vis-network`. Riceve nodi ed archi e renderizza il grafo interattivo. Usato da `TransferChain` per visualizzare la rete di trasferimenti.
+Wrapper attorno alla libreria `vis-network`. Riceve nodi ed archi e renderizza il grafo interattivo. Usato per visualizzare la rete di trasferimenti in L2.
 
 #### `pages/Home.tsx`
-Dashboard iniziale. Mostra i contatori globali (da `GET /api/home/stats`) e le card cliccabili per navigare verso ciascuna query.
-
-#### `pages/Explore.tsx`
-Pagina di esplorazione libera del dataset. Presenta tre tab (Persone, Aziende, Account) con le entità dal contesto `SuggestionsContext`. Cliccando su un'entità si viene reindirizzati alla pagina di query rilevante con l'ID pre-compilato tramite query parameter URL (es. `/transfers?id=123`).
-
-#### `pages/PersonLookup.tsx` — Query L1
-Interroga `GET /api/lookup/person/{id}` e mostra l'anagrafica completa (nome, nazione, genere, data di nascita, città).
-
-#### `pages/TransferChain.tsx` — Query L2
-Interroga `GET /api/lookup/account/{id}/transfers?hops=N` e visualizza il grafo delle transazioni con `GraphViewer`. Nodo di partenza in viola, destinazioni standard in grigio.
-
-#### `pages/CompanyPortfolio.tsx` — Query L3
-Interroga `GET /api/lookup/company/{id}/portfolio` e mostra la lista dei conti bancari di proprietà dell'azienda con tipo e data di apertura.
-
-#### `pages/CompanyStats.tsx` — Query A1
-Interroga `GET /api/analytics/companies/stats` e mostra un `BarChart` (Recharts) e una tabella con la distribuzione delle aziende bloccate per nazione.
-
-#### `pages/ShortestPath.tsx` — Query A2
-Interroga `GET /api/analytics/network/shortest-path?from_id=X&to_id=Y` e mostra il percorso minimo tra due account. Include il pulsante per flaggare l'account di partenza.
-
-#### `pages/LaunderingCycle.tsx` — Query A3
-Interroga `GET /api/analytics/suspicious-cycle/{id}?depth=N` e mostra, se trovato, il ciclo chiuso di trasferimenti con le nazioni coinvolte e i proprietari degli account. Include il pulsante per salvare l'investigazione.
-
-#### `pages/FlaggedAccounts.tsx`
-Interroga `GET /api/flagged/` e mostra tutte le investigazioni salvate con livello di rischio e note. Ogni card ha un pulsante per rimuovere il flag (`DELETE /api/flagged/{id}`).
+La dashboard principale consolidata. Mostra in alto i contatori globali riepilogativi (da `GET /api/home/stats`) e contiene l'interfaccia a schede/pannelli (accordion) per lanciare tutte le query:
+- **L1 (Anagrafica Persona):** Form visuale esteso (Person Lookup).
+- **L2 (Catena Trasferimenti):** Renderizza interattivamente la rete in Neo4j.
+- **L3 (Portafoglio Aziendale):** Ritorna le anagrafiche dei conti posseduti.
+- **A1 (Statistiche Aziende):** Chart a barre riepilogative (nazioni bloccate).
+- **A2 (Shortest Path):** Esplora percorsi in Neo4j (grafo e salti minimi).
+- **A3 (Riciclaggio di Denaro):** Ricerca di cicli chiusi (money laundering cycles).
 
 ---
 
-## Mappatura completa Funzione Backend → Pagina Frontend
+## Mappatura completa Funzione Backend → Pannello Frontend
 
-| Endpoint Backend | Funzione Python | Pagina Frontend | Tipo Query | Database |
+| Endpoint Backend | Funzione Python | Pannello in `Home.tsx` | Tipo Query | Database |
 |---|---|---|---|---|
-| `GET /api/lookup/person/{id}` | `get_person` | `PersonLookup` | Lookup L1 | MongoDB |
-| `GET /api/lookup/account/{id}/transfers` | `get_account_transfers` | `TransferChain` | Lookup L2 | Neo4j |
-| `GET /api/lookup/company/{id}/portfolio` | `get_company_portfolio` | `CompanyPortfolio` | Lookup L3 | Cross-DB |
-| `GET /api/analytics/companies/stats` | `get_companies_stats` | `CompanyStats` | Analitica A1 | MongoDB |
-| `GET /api/analytics/network/shortest-path` | `get_shortest_path` | `ShortestPath` | Analitica A2 | Neo4j |
-| `GET /api/analytics/suspicious-cycle/{id}` | `get_suspicious_cycle` | `LaunderingCycle` | Analitica A3 | Cross-DB |
-| `GET /api/home/stats` | `get_home_stats` | `Home` | Supporto | MongoDB |
-| `GET /api/suggestions` | `get_suggestions` | Globale (Context) | Supporto | Cross-DB |
-| `GET /api/flagged/` | `get_flagged_accounts` | `FlaggedAccounts` | CRUD | MongoDB |
-| `POST /api/flagged/` | `flag_account` | `LaunderingCycle`, `ShortestPath` | CRUD | MongoDB |
-| `DELETE /api/flagged/{id}` | `remove_flag` | `FlaggedAccounts` | CRUD | MongoDB |
+| `GET /api/lookup/person/{id}` | `get_person` | `PanelL1` | Lookup L1 | MongoDB |
+| `GET /api/lookup/account/{id}/transfers` | `get_account_transfers` | `PanelL2` | Lookup L2 | Neo4j |
+| `GET /api/lookup/company/{id}/portfolio` | `get_company_portfolio` | `PanelL3` | Lookup L3 | Cross-DB |
+| `GET /api/analytics/companies/stats` | `get_companies_stats` | `PanelA1` | Analitica A1 | MongoDB |
+| `GET /api/analytics/network/shortest-path` | `get_shortest_path` | `PanelA2` | Analitica A2 | Neo4j |
+| `GET /api/analytics/suspicious-cycle/{id}` | `get_suspicious_cycle` | `PanelA3` | Analitica A3 | Cross-DB |
+| `GET /api/search/{type}?q=...` | `search_entity` | `SearchableSelect` | Supporto | Cross-Mongo/Neo4j |
+| `GET /api/home/stats` | `get_home_stats` | Top Bar Stats | Supporto | MongoDB |
 
 ---
 

@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
 import { api } from '../api/client'
-import { useSuggestions } from '../context/SuggestionsContext'
 import SearchableSelect from '../components/SearchableSelect'
 import GraphViewer from '../components/GraphViewer'
 import {
@@ -28,7 +27,6 @@ interface HomeStats {
   blocked_accounts: number
   total_companies: number
   blocked_companies: number
-  total_flagged: number
 }
 
 const PANELS: PanelMeta[] = [
@@ -71,7 +69,6 @@ export default function Home() {
             { label: 'Account Nel Grafo',    value: stats.total_accounts,    danger: false, accent: false },
             { label: 'Account Bloccati',     value: stats.blocked_accounts,  danger: true,  accent: false },
             { label: 'Aziende Bloccate',     value: stats.blocked_companies, danger: true,  accent: false },
-            { label: 'Investigazioni Chiuse', value: stats.total_flagged,    danger: false, accent: true  },
           ] as const).map((m) => (
             <div key={m.label} style={{
               background: '#13131f', border: '1px solid #2a2a3a',
@@ -225,7 +222,6 @@ const tdStyle: React.CSSProperties = {
    ================================================================ */
 
 function PanelL1() {
-  const { persons } = useSuggestions()
   const [personId, setPersonId] = useState('')
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -244,7 +240,7 @@ function PanelL1() {
   return (
     <>
       <div style={formRow}>
-        <SearchableSelect options={persons} placeholder="Cerca per nome…" value={personId} onSelect={setPersonId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('person', q)} placeholder="Cerca per nome…" value={personId} onSelect={setPersonId} />
         <button onClick={run} disabled={loading || !personId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Ricerca…' : 'Cerca'}
         </button>
@@ -282,7 +278,6 @@ function PanelL1() {
    ================================================================ */
 
 function PanelL2() {
-  const { accounts } = useSuggestions()
   const [accountId, setAccountId] = useState('')
   const [hops, setHops] = useState(2)
   const [result, setResult] = useState<any>(null)
@@ -327,7 +322,7 @@ function PanelL2() {
   return (
     <>
       <div style={formRow}>
-        <SearchableSelect options={accounts} placeholder="Cerca account…" value={accountId} onSelect={setAccountId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('account', q)} placeholder="Cerca proprietario account…" value={accountId} onSelect={setAccountId} />
         <SliderInput label="Hops" min={1} max={5} value={hops} onChange={setHops} />
         <button onClick={run} disabled={loading || !accountId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Estrazione…' : 'Visualizza'}
@@ -364,7 +359,6 @@ function PanelL2() {
    ================================================================ */
 
 function PanelL3() {
-  const { companies } = useSuggestions()
   const [companyId, setCompanyId] = useState('')
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -383,7 +377,7 @@ function PanelL3() {
   return (
     <>
       <div style={formRow}>
-        <SearchableSelect options={companies} placeholder="Cerca azienda…" value={companyId} onSelect={setCompanyId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('company', q)} placeholder="Cerca azienda…" value={companyId} onSelect={setCompanyId} />
         <button onClick={run} disabled={loading || !companyId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Ricerca…' : 'Cerca'}
         </button>
@@ -518,7 +512,6 @@ function PanelA1() {
    ================================================================ */
 
 function PanelA2() {
-  const { accounts } = useSuggestions()
   const [fromId, setFromId] = useState('')
   const [toId, setToId] = useState('')
   const [result, setResult] = useState<any>(null)
@@ -538,8 +531,8 @@ function PanelA2() {
   return (
     <>
       <div style={formRow}>
-        <SearchableSelect options={accounts} placeholder="Partenza…" value={fromId} onSelect={setFromId} />
-        <SearchableSelect options={accounts} placeholder="Destinazione…" value={toId} onSelect={setToId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('account', q)} placeholder="Partenza (nome proprietario)…" value={fromId} onSelect={setFromId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('account', q)} placeholder="Destinazione (nome proprietario)…" value={toId} onSelect={setToId} />
         <button onClick={run} disabled={loading || !fromId || !toId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Ricerca…' : 'Calcola'}
         </button>
@@ -589,7 +582,6 @@ function PanelA2() {
    ================================================================ */
 
 function PanelA3() {
-  const { cyclicAccounts } = useSuggestions()
   const [accountId, setAccountId] = useState('')
   const [depth, setDepth] = useState(2)
   const [result, setResult] = useState<any>(null)
@@ -606,7 +598,7 @@ function PanelA3() {
   return (
     <>
       <div style={formRow}>
-        <SearchableSelect options={cyclicAccounts} placeholder="Seleziona account ciclico…" value={accountId} onSelect={setAccountId} />
+        <SearchableSelect fetchOptions={(q) => api.searchEntities('account', q)} placeholder="Cerca proprietario account…" value={accountId} onSelect={setAccountId} />
         <SliderInput label="Depth" min={1} max={3} value={depth} onChange={setDepth} />
         <button onClick={run} disabled={loading || !accountId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Elaborazione…' : 'Esegui'}

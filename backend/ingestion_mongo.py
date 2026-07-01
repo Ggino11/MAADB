@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, TEXT
 
 # Costanti e Percorsi
 MONGO_URI = "mongodb://root:password@localhost:27017/"
@@ -35,6 +35,13 @@ def ingest_to_mongo():
             
         # Svuotiamo la collezione prima di importare (utile se ri-eseguiamo lo script)
         db[coll_name].drop()
+
+        # --- Creazione Indici ---
+
+        db[coll_name].create_index([("id", ASCENDING)], unique=True, name=f"{coll_name}_id_unique")
+        if coll_name in ("person", "company"):
+            db[coll_name].create_index([("name", TEXT)], name=f"{coll_name}_name_text")
+        print(f"[OK] Indici creati per '{coll_name}' (id unique{', name text' if coll_name in ('person','company') else ''})")
         
         total_inserted = 0
         for file in csv_files:

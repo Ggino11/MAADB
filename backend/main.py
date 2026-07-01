@@ -1,22 +1,10 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
 from database import db
 
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-def mixed_ids(str_ids: List[str]) -> List:
-    """Restituisce la lista originale più le versioni int di ogni ID numerico.
-    Necessario perché MongoDB può memorizzare gli ID come int o stringa."""
-    result = list(str_ids)
-    for sid in str_ids:
-        try:
-            result.append(int(sid))
-        except (ValueError, TypeError):
-            pass
-    return result
+# Nota: mixed_ids() rimossa. Gli ID FinBench sono interi (int64); FastAPI
+# converte automaticamente il path/query parameter da stringa URL a int,
+# garantendo che il tipo corrisponda a quello memorizzato in MongoDB.
 
 
 # ---------------------------------------------------------------------------
@@ -58,12 +46,12 @@ def read_root():
 
 # L1 — (MongoDB) Anagrafica persona
 @app.get("/api/lookup/person/{person_id}")
-def get_person(person_id: str):
+def get_person(person_id: int):
     """Restituisce i dati anagrafici di una persona dalla collezione MongoDB 'person'.
     Utilizzata dalla pagina /person (PersonLookup).
     """
     person = db.mongo_db.person.find_one(
-        {"id": {"$in": mixed_ids([person_id])}}, {"_id": 0}
+        {"id": person_id}, {"_id": 0}
     )
     if not person:
         raise HTTPException(status_code=404, detail="Persona non trovata")
@@ -72,7 +60,7 @@ def get_person(person_id: str):
 
 # L2 — (Neo4j) Catena di trasferimenti di un conto
 @app.get("/api/lookup/account/{account_id}/transfers")
-def get_account_transfers(account_id: str, hops: int = 2):
+def get_account_transfers(account_id: int, hops: int = 2):
     """Percorre il grafo delle transazioni da un account per N hop.
     La profondità (hops) deve essere iniettata nell'f-string: Cypher non accetta
     variabili come lunghezza di cammino.
@@ -101,28 +89,29 @@ def get_account_transfers(account_id: str, hops: int = 2):
 
 # L3 — (Cross-DB) Portafoglio aziendale
 @app.get("/api/lookup/company/{company_id}/portfolio")
-def get_company_portfolio(company_id: str):
+def get_company_portfolio(company_id: int):
     """Query in due passi:
       1. Neo4j  → trova gli account posseduti dall'azienda (relazione OWNS).
       2. MongoDB → recupera i dettagli di quegli account dalla collezione 'account'.
     Utilizzata dalla pagina /company (CompanyPortfolio).
     """
-    # Step 1: grafo Neo4j
+    # Step 1: grafo Neo4j — restituisce gli id degli account come stringhe
     with db.neo4j_driver.session() as session:
         result = session.run(
-            "MATCH (c:Company {id: $cid})-[:OWNS]->(a:Account) RETURN toString(a.id) AS account_id",
+            "MATCH (c:Company {id: $cid})-[:OWNS]->(a:Account) RETURN a.id AS account_id",
             cid=company_id
         )
+        # Neo4j memorizza gli id come interi (coerente con il datagen FinBench)
         account_ids = [r["account_id"] for r in result]
 
     if not account_ids:
-        if not db.mongo_db.company.find_one({"id": {"$in": mixed_ids([company_id])}}):
+        if not db.mongo_db.company.find_one({"id": company_id}):
             raise HTTPException(status_code=404, detail="Azienda non trovata")
         return {"company_id": company_id, "accounts": [], "message": "Nessun conto associato"}
 
-    # Step 2: documenti MongoDB
+    # Step 2: documenti MongoDB — i account_ids sono già int, corrispondono al tipo in MongoDB
     accounts_details = list(
-        db.mongo_db.account.find({"id": {"$in": mixed_ids(account_ids)}}, {"_id": 0})
+        db.mongo_db.account.find({"id": {"$in": account_ids}}, {"_id": 0})
     )
     return {
         "company_id": company_id,
@@ -268,7 +257,7 @@ def get_companies_stats():
 
 # A2 — (Neo4j) Shortest path tra due account
 @app.get("/api/analytics/network/shortest-path")
-def get_shortest_path(from_id: str, to_id: str):
+def get_shortest_path(from_id: int, to_id: int):
     """Usa l'algoritmo shortestPath nativo di Neo4j per trovare il percorso
     minimo tra due account nella rete di trasferimenti.
     Utilizzata dalla pagina /shortest-path (ShortestPath).
@@ -299,7 +288,7 @@ def get_shortest_path(from_id: str, to_id: str):
 # A3 — (Cross-DB) Ciclo di riciclaggio sospetto
 @app.get("/api/analytics/suspicious-cycle/{account_id}")
 def get_suspicious_cycle(
-    account_id: str,
+    account_id: int,
     depth: int = Query(3, description="Profondità massima del ciclo")
 ):
     """Query in due passi:
@@ -308,10 +297,10 @@ def get_suspicious_cycle(
     Restituisce anche il flag 'international_laundering' se coinvolte più nazioni.
     Utilizzata dalla pagina /laundering-cycle (LaunderingCycle).
     """
-    # Step 1: Neo4j — ricerca ciclo
+    # Step 1: Neo4j — ricerca ciclo; i nodi del path vengono restituiti come int
     cycle_query = f"""
     MATCH path = (a:Account {{id: $account_id}})-[:TRANSFERS*2..{depth}]->(a)
-    RETURN [n IN nodes(path) | toString(n.id)] AS cycle_accounts
+    RETURN [n IN nodes(path) | n.id] AS cycle_accounts
     LIMIT 1
     """
     with db.neo4j_driver.session() as session:
@@ -322,11 +311,11 @@ def get_suspicious_cycle(
 
     cycle_account_ids = list(set(cycle_result["cycle_accounts"]))
 
-    # Step 2a: Neo4j — proprietari degli account nel ciclo
+    # Step 2a: Neo4j — proprietari degli account nel ciclo (id come int)
     owners_query = """
     UNWIND $account_ids AS acc_id
     MATCH (owner)-[:OWNS]->(a:Account {id: acc_id})
-    RETURN toString(owner.id) AS owner_id, labels(owner)[0] AS owner_type
+    RETURN owner.id AS owner_id, labels(owner)[0] AS owner_type
     """
     with db.neo4j_driver.session() as session:
         owner_ids = [
@@ -334,26 +323,26 @@ def get_suspicious_cycle(
             for r in session.run(owners_query, account_ids=cycle_account_ids)
         ]
 
-    # Step 2b: MongoDB — dettagli anagrafici dei proprietari
+    # Step 2b: MongoDB — i owner_ids sono già int, corrispondono al tipo in MongoDB
     owner_details = []
 
     for p in db.mongo_db.person.find(
-        {"id": {"$in": mixed_ids(owner_ids)}},
+        {"id": {"$in": owner_ids}},
         {"_id": 0, "id": 1, "name": 1, "country": 1}
     ):
         owner_details.append({
-            "id": str(p["id"]),
+            "id": p["id"],
             "name": p.get("name", "N/A"),
             "country": p.get("country", "N/A"),
             "type": "Person"
         })
 
     for c in db.mongo_db.company.find(
-        {"id": {"$in": mixed_ids(owner_ids)}},
+        {"id": {"$in": owner_ids}},
         {"_id": 0, "id": 1, "name": 1, "country": 1}
     ):
         owner_details.append({
-            "id": str(c["id"]),
+            "id": c["id"],
             "name": c.get("name", "N/A"),
             "country": c.get("country", "N/A"),
             "type": "Company"

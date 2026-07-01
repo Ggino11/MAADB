@@ -129,10 +129,6 @@ Cuore dell'applicazione. Contiene tutte le route API raggruppate in categorie:
 
 **Helper `mixed_ids(str_ids)`**: funzione di utilità che, data una lista di ID stringa, restituisce anche le versioni intere. Necessaria per interrogare MongoDB, che può avere gli ID salvati come `int` o `str` a seconda del CSV originale.
 
-> ⚠️ **Nota su Neo4j e gli ID**: tutti gli ID sono importati come *stringhe* in Neo4j. La funzione `parse_id()` (conversione a `int`) è stata quindi rimossa perché superflua e causa di `404` sulle query al grafo.
-
-> ⚠️ **Nota su `hops` e `depth`**: Cypher non supporta parametri (`$var`) come lunghezza di cammino (`*1..$hops`). Questi valori vengono pertanto iniettati nell'f-string Python prima di inviare la query, come documentato inline nel codice.
-
 #### `ingestion_mongo.py`
 Script ETL standalone. Per ciascuna entità (`person`, `company`, `account`):
 1. Individua i file CSV in `dataset/raw/<entità>/` (pattern `part-*.csv`)

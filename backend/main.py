@@ -62,12 +62,17 @@ def get_person(person_id: int):
 @app.get("/api/lookup/account/{account_id}/transfers")
 def get_account_transfers(account_id: int, hops: int = 2):
     """Percorre il grafo delle transazioni da un account per N hop.
-    La profondità (hops) deve essere iniettata nell'f-string: Cypher non accetta
-    variabili come lunghezza di cammino.
     Utilizzata dalla pagina /transfers (TransferChain).
     """
-    query = f"""
-    MATCH path = (a:Account {{id: $account_id}})-[:TRANSFERS*1..{hops}]->(b:Account)
+    query = """
+    MATCH (start:Account {id: $account_id})
+    CALL apoc.path.expandConfig(start, {
+        relationshipFilter: "TRANSFERS>",
+        labelFilter: "Account",
+        minLevel: 1,
+        maxLevel: $hops
+    })
+    YIELD path
     RETURN
         [n IN nodes(path) | toString(n.id)] AS path_nodes,
         length(path) AS depth,
@@ -75,7 +80,7 @@ def get_account_transfers(account_id: int, hops: int = 2):
     ORDER BY depth
     """
     with db.neo4j_driver.session() as session:
-        paths = [dict(r) for r in session.run(query, account_id=account_id)]
+        paths = [dict(r) for r in session.run(query, account_id=account_id, hops=hops)]
 
     if not paths:
         with db.neo4j_driver.session() as session:
@@ -91,8 +96,8 @@ def get_account_transfers(account_id: int, hops: int = 2):
 @app.get("/api/lookup/company/{company_id}/portfolio")
 def get_company_portfolio(company_id: int):
     """Query in due passi:
-      1. Neo4j  → trova gli account posseduti dall'azienda (relazione OWNS).
-      2. MongoDB → recupera i dettagli di quegli account dalla collezione 'account'.
+      1. Neo4j : trova gli account posseduti dall'azienda (relazione OWNS).
+      2. MongoDB > recupera i dettagli di quegli account dalla collezione 'account'.
     Utilizzata dalla pagina /company (CompanyPortfolio).
     """
     # Step 1: grafo Neo4j — restituisce gli id degli account come stringhe
@@ -292,19 +297,29 @@ def get_suspicious_cycle(
     depth: int = Query(3, description="Profondità massima del ciclo")
 ):
     """Query in due passi:
-      1. Neo4j  → cerca un ciclo chiuso TRANSFERS*2..depth a partire dall'account.
-      2. MongoDB → recupera nome e nazione dei proprietari degli account nel ciclo.
+      1. Neo4j  > cerca un ciclo chiuso TRANSFERS*2..depth a partire dall'account.
+      2. MongoDB > recupera nome e nazione dei proprietari degli account nel ciclo.
     Restituisce anche il flag 'international_laundering' se coinvolte più nazioni.
     Utilizzata dalla pagina /laundering-cycle (LaunderingCycle).
     """
     # Step 1: Neo4j — ricerca ciclo; i nodi del path vengono restituiti come int
-    cycle_query = f"""
-    MATCH path = (a:Account {{id: $account_id}})-[:TRANSFERS*2..{depth}]->(a)
+    # terminate node start per permmetere di rivisitare il nodo di partenza 
+    # uniqueness: "RELATIONSHIP_PATH" evita cicli multipli tra gli stessi nodi
+    cycle_query = """
+    MATCH (start:Account {id: $account_id})
+    CALL apoc.path.expandConfig(start, {
+        relationshipFilter: "TRANSFERS>",
+        terminatorNodes: [start],
+        uniqueness: "RELATIONSHIP_PATH",
+        minLevel: 2,
+        maxLevel: $depth
+    })
+    YIELD path
     RETURN [n IN nodes(path) | n.id] AS cycle_accounts
     LIMIT 1
     """
     with db.neo4j_driver.session() as session:
-        cycle_result = session.run(cycle_query, account_id=account_id).single()
+        cycle_result = session.run(cycle_query, account_id=account_id, depth=depth).single()
 
     if not cycle_result:
         return {"account_id": account_id, "suspicious_cycle_found": False}

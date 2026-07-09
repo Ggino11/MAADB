@@ -2,14 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from database import db
 
-# Nota: mixed_ids() rimossa. Gli ID FinBench sono interi (int64); FastAPI
-# converte automaticamente il path/query parameter da stringa URL a int,
-# garantendo che il tipo corrisponda a quello memorizzato in MongoDB.
-
-
-# ---------------------------------------------------------------------------
 # App
-# ---------------------------------------------------------------------------
 
 app = FastAPI(
     title="MAADB Polyglot API",
@@ -74,7 +67,7 @@ def get_account_transfers(account_id: int, hops: int = 2):
     })
     YIELD path
     RETURN
-        [n IN nodes(path) | toString(n.id)] AS path_nodes,
+        [n IN nodes(path) | n.id] AS path_nodes,
         length(path) AS depth,
         false AS is_target_blocked
     ORDER BY depth
@@ -106,7 +99,7 @@ def get_company_portfolio(company_id: int):
             "MATCH (c:Company {id: $cid})-[:OWNS]->(a:Account) RETURN a.id AS account_id",
             cid=company_id
         )
-        # Neo4j memorizza gli id come interi (coerente con il datagen FinBench)
+        # Neo4j memorizza gli id come interi
         account_ids = [r["account_id"] for r in result]
 
     if not account_ids:
@@ -114,7 +107,7 @@ def get_company_portfolio(company_id: int):
             raise HTTPException(status_code=404, detail="Azienda non trovata")
         return {"company_id": company_id, "accounts": [], "message": "Nessun conto associato"}
 
-    # Step 2: documenti MongoDB — i account_ids sono già int, corrispondono al tipo in MongoDB
+    # Step 2: documenti MongoDB — i account_ids sono già interi
     accounts_details = list(
         db.mongo_db.account.find({"id": {"$in": account_ids}}, {"_id": 0})
     )
@@ -145,6 +138,8 @@ def search_entity(
             {"name": {"$regex": q, "$options": "i"}},
             {"_id": 0, "id": 1, "name": 1, "country": 1}
         ).limit(limit)
+        # Convertiamo l'ID in stringa prima di inviarlo al frontend per evitare
+        # la perdita di precisione di JavaScript con i numeri a 64-bit (> Number.MAX_SAFE_INTEGER).
         return [
             {"id": str(p["id"]), "label": p.get("name") or f"ID: {p['id']}"}
             for p in results
@@ -155,6 +150,7 @@ def search_entity(
             {"name": {"$regex": q, "$options": "i"}},
             {"_id": 0, "id": 1, "name": 1, "country": 1}
         ).limit(limit)
+        # Come sopra, proteggiamo l'ID 64-bit trasformandolo in stringa per il JSON
         return [
             {"id": str(c["id"]), "label": c.get("name") or f"ID: {c['id']}"}
             for c in results
@@ -175,10 +171,12 @@ def search_entity(
             {"_id": 0, "id": 1, "name": 1}
         ).limit(limit))
         
+        # Usiamo stringhe come chiavi della mappa per consistenza,
+        # e per proteggere gli ID a 64-bit quando verranno inseriti nel JSON finale
         owner_map = {str(p["id"]): p.get("name") for p in owners}
         owner_map.update({str(c["id"]): c.get("name") for c in companies})
         
-        owner_ids = list(owner_map.keys())
+        owner_ids = [int(k) for k in owner_map.keys()]
         if not owner_ids:
             return []
             
@@ -186,15 +184,17 @@ def search_entity(
         query = """
         UNWIND $owner_ids AS oid
         MATCH (owner {id: oid})-[:OWNS]->(a:Account)
-        RETURN toString(a.id) AS account_id, toString(owner.id) AS owner_id
+        RETURN a.id AS account_id, owner.id AS owner_id
         LIMIT $limit
         """
         with db.neo4j_driver.session() as session:
             result = session.run(query, owner_ids=owner_ids, limit=limit)
             accounts = []
             for r in result:
-                acc_id = r["account_id"]
-                own_id = r["owner_id"]
+                # Cast a stringa per evitare che Javascript sul frontend 
+                # arrotondi l'ID distruggendone il valore (es. ...9000).
+                acc_id = str(r["account_id"])
+                own_id = str(r["owner_id"])
                 owner_name = owner_map.get(own_id, "Sconosciuto")
                 accounts.append({
                     "id": acc_id,
@@ -270,7 +270,7 @@ def get_shortest_path(from_id: int, to_id: int):
     query = """
     MATCH (start:Account {id: $from_id}), (end:Account {id: $to_id})
     MATCH path = shortestPath((start)-[:TRANSFERS*]-(end))
-    RETURN length(path) AS jumps, [n IN nodes(path) | toString(n.id)] AS path_nodes
+    RETURN length(path) AS jumps, [n IN nodes(path) | n.id] AS path_nodes
     """
     with db.neo4j_driver.session() as session:
         result = session.run(query, from_id=from_id, to_id=to_id).single()
@@ -316,6 +316,7 @@ def get_suspicious_cycle(
     })
     YIELD path
     RETURN [n IN nodes(path) | n.id] AS cycle_accounts
+    ORDER BY length(path) DESC
     LIMIT 1
     """
     with db.neo4j_driver.session() as session:
@@ -338,9 +339,9 @@ def get_suspicious_cycle(
             for r in session.run(owners_query, account_ids=cycle_account_ids)
         ]
 
-    # Step 2b: MongoDB — i owner_ids sono già int, corrispondono al tipo in MongoDB
+    # Step 2b: MongoDB — i owner_ids sono già interi
     owner_details = []
-
+    
     for p in db.mongo_db.person.find(
         {"id": {"$in": owner_ids}},
         {"_id": 0, "id": 1, "name": 1, "country": 1}

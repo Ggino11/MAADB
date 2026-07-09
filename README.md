@@ -72,6 +72,25 @@ pip install -r backend/requirements.txt
 
 I dati vengono letti dalla cartella `dataset/raw/` generata da LDBC FinBench Datagen.
 
+> **Nota importante in caso di clonazione:** La cartella `dataset/` è ignorata da Git. Se cloni la repo su un nuovo PC, dovrai rigenerare i dati usando [LDBC FinBench Datagen](https://github.com/ldbc/ldbc_finbench_datagen).
+
+#### Come generare i dati raw (Tramite Docker)
+Per questo progetto stiamo utilizzando il dataset in versione "small". Invece di installare localmente tecnologie pesanti (Java, Spark, Scala), abbiamo incapsulato il generatore ufficiale (LDBC FinBench Datagen) in un container Docker.
+Per rigenerare i file raw da zero:
+1. Clona la repository ufficiale e spostati nella sua cartella:
+   ```bash
+   git clone https://github.com/ldbc/ldbc_finbench_datagen.git
+   cd ldbc_finbench_datagen
+   ```
+2. Compila il generatore (scarica le dipendenze e crea l'immagine Docker):
+   ```bash
+   docker build -t ldbc-datagen .
+   ```
+3. Avvia il generatore mappando un volume condiviso, che salverà i dati CSV direttamente nella cartella `dataset` del nostro progetto:
+   ```bash
+   docker run --rm -v "$PWD\..\dataset:/app/out" ldbc-datagen
+   ```
+
 ```bash
 # Importa persone, aziende e conti in MongoDB
 python backend/ingestion_mongo.py

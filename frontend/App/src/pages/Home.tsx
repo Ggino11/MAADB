@@ -599,7 +599,7 @@ function PanelA3() {
     <>
       <div style={formRow}>
         <SearchableSelect fetchOptions={(q) => api.searchEntities('account', q)} placeholder="Cerca proprietario account…" value={accountId} onSelect={setAccountId} />
-        <SliderInput label="Depth" min={1} max={3} value={depth} onChange={setDepth} />
+        <SliderInput label="Depth" min={1} max={5} value={depth} onChange={setDepth} />
         <button onClick={run} disabled={loading || !accountId} style={{ whiteSpace: 'nowrap' }}>
           {loading ? 'Elaborazione…' : 'Esegui'}
         </button>

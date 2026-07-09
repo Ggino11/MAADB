@@ -85,7 +85,7 @@ def ingest_to_neo4j():
         for folder, label, id_col in nodes_to_create:
             csv_files = get_csv_files(folder)
             for file in csv_files:
-                df = pd.read_csv(file, sep='|', usecols=[id_col], dtype={id_col: str})
+                df = pd.read_csv(file, sep='|', usecols=[id_col])
                 records = df.to_dict('records')
                 # Suddividiamo in chunk da 1000 per non sovraccaricare Neo4j
                 for i in range(0, len(records), 1000):
@@ -109,7 +109,7 @@ def ingest_to_neo4j():
                     cols = [from_col, to_col, 'amount', 'payType']
                 else:
                     cols = [from_col, to_col]
-                df = pd.read_csv(file, sep='|', usecols=cols, dtype=str)
+                df = pd.read_csv(file, sep='|', usecols=cols)
                 records = df.to_dict('records')
                 for i in range(0, len(records), 1000):
                     batch = records[i:i+1000]

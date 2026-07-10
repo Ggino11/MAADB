@@ -58,7 +58,7 @@ docker compose up -d
 
 I container avviati sono:
 - `maadb-mongodb` — MongoDB 6.0 su porta 27017 (credenziali: `root` / `password`)
-- `maadb-neo4j` — Neo4j 5.12 su porta 7687 (credenziali: `neo4j` / `password1234`)
+- `maadb-neo4j` — Neo4j 5.12 su porta 7687 (credenziali: `neo4j` / `password1234`), avviato con il plugin **APOC** abilitato: è richiesto dalle query di attraversamento del grafo (`apoc.path.expandConfig`) usate in L2 e A3
 
 ### 3. Installazione dipendenze Python
 
@@ -146,7 +146,9 @@ Cuore dell'applicazione. Contiene tutte le route API raggruppate in categorie:
 | — | `search_entity` | `GET /api/search/{entity_type}?q=...` | Cross-DB/Mongo |
 | — | `get_home_stats` | `GET /api/home/stats` | MongoDB |
 
-**Helper `mixed_ids(str_ids)`**: funzione di utilità che, data una lista di ID stringa, restituisce anche le versioni intere. Necessaria per interrogare MongoDB, che può avere gli ID salvati come `int` o `str` a seconda del CSV originale.
+**Gestione degli ID**: tutti gli ID (persona, azienda, conto) sono trattati come `int` in modo coerente sia in MongoDB che in Neo4j. Le uniche conversioni a stringa avvengono nelle risposte JSON verso il frontend (`search_entity`, percorsi, cicli), per evitare che JavaScript perda precisione sugli interi a 64 bit (oltre `Number.MAX_SAFE_INTEGER`).
+
+**Query di attraversamento grafo (L2, A3)**: `get_account_transfers` e `get_suspicious_cycle` usano `apoc.path.expandConfig`, quindi richiedono il plugin **APOC** su Neo4j (già abilitato nel `docker-compose.yml`, vedi sotto).
 
 #### `ingestion_mongo.py`
 Script ETL standalone. Per ciascuna entità (`person`, `company`, `account`):
@@ -160,6 +162,9 @@ Script ETL standalone. Carica nel grafo Neo4j:
 - **Relazioni**: `OWNS` (Person→Account, Company→Account) e `TRANSFERS` (Account→Account)
 
 I dati vengono inviati a Neo4j in batch da 1000 record tramite `session.execute_write`.
+
+#### `test_db.py`
+Script standalone per verificare rapidamente che le connessioni a MongoDB e Neo4j funzionino (utile subito dopo `docker compose up -d`, prima di lanciare gli script di ingestion).
 
 ---
 

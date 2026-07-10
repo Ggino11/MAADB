@@ -1,9 +1,9 @@
 /.vscode
-./out
-./target
+out/
+target/
 /dataset
 /backend/venv/
 __pycache__/
 *.pyc    
-
+/.venv
 

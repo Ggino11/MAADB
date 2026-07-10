@@ -57,23 +57,16 @@ def get_account_transfers(account_id: int, hops: int = 2):
     """Percorre il grafo delle transazioni da un account per N hop.
     Utilizzata dalla pagina /transfers (TransferChain).
     """
-    query = """
-    MATCH (start:Account {id: $account_id})
-    CALL apoc.path.expandConfig(start, {
-        relationshipFilter: "TRANSFERS>",
-        labelFilter: "Account",
-        minLevel: 1,
-        maxLevel: $hops
-    })
-    YIELD path
+    query = f"""
+    MATCH path = (start:Account {{id: $account_id}})-[:TRANSFERS*1..{hops}]->(b:Account)
     RETURN
-        [n IN nodes(path) | n.id] AS path_nodes,
+        [n IN nodes(path) | toString(n.id)] AS path_nodes,
         length(path) AS depth,
         false AS is_target_blocked
     ORDER BY depth
     """
     with db.neo4j_driver.session() as session:
-        paths = [dict(r) for r in session.run(query, account_id=account_id, hops=hops)]
+        paths = [dict(r) for r in session.run(query, account_id=account_id)]
 
     if not paths:
         with db.neo4j_driver.session() as session:
@@ -270,7 +263,7 @@ def get_shortest_path(from_id: int, to_id: int):
     query = """
     MATCH (start:Account {id: $from_id}), (end:Account {id: $to_id})
     MATCH path = shortestPath((start)-[:TRANSFERS*]-(end))
-    RETURN length(path) AS jumps, [n IN nodes(path) | n.id] AS path_nodes
+    RETURN length(path) AS jumps, [n IN nodes(path) | toString(n.id)] AS path_nodes
     """
     with db.neo4j_driver.session() as session:
         result = session.run(query, from_id=from_id, to_id=to_id).single()
@@ -315,7 +308,7 @@ def get_suspicious_cycle(
         maxLevel: $depth
     })
     YIELD path
-    RETURN [n IN nodes(path) | n.id] AS cycle_accounts
+    RETURN [n IN nodes(path) | toString(n.id)] AS cycle_accounts
     ORDER BY length(path) DESC
     LIMIT 1
     """

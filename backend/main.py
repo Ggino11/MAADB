@@ -33,9 +33,7 @@ def read_root():
     return {"message": "MAADB API is running!"}
 
 
-# ===========================================================================
 # Categoria 1 — Query di Lookup
-# ===========================================================================
 
 # L1 — (MongoDB) Anagrafica persona
 @app.get("/api/lookup/person/{person_id}")
@@ -111,9 +109,7 @@ def get_company_portfolio(company_id: int):
     }
 
 
-# ===========================================================================
 # Endpoint di supporto — Home & Suggestions
-# ===========================================================================
 
 @app.get("/api/search/{entity_type}")
 def search_entity(
@@ -212,9 +208,7 @@ def get_home_stats():
     }
 
 
-# ===========================================================================
 # Categoria 2 — Query Analitiche
-# ===========================================================================
 
 # A1 — (MongoDB Aggregation) Statistiche aziende per nazione
 @app.get("/api/analytics/companies/stats")

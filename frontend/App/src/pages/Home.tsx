@@ -7,9 +7,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
 
-/* ================================================================
-   TYPES
-   ================================================================ */
+/* TYPES */
 
 type PanelId = 'L1' | 'L2' | 'L3' | 'A1' | 'A2' | 'A3'
 
@@ -38,9 +36,7 @@ const PANELS: PanelMeta[] = [
   { id: 'A3', title: 'Ciclo sospetto',                 badge: 'Cross-DB', badgeColor: '#fbbf24', badgeBg: 'rgba(245, 158, 11, 0.1)' },
 ]
 
-/* ================================================================
-   HOME — Stats + Query Accordion
-   ================================================================ */
+/* HOME — Stats + Query Accordion*/
 
 export default function Home() {
   const [stats, setStats] = useState<HomeStats | null>(null)
@@ -57,7 +53,7 @@ export default function Home() {
   return (
     <div style={{ padding: '40px 48px' }}>
 
-      {/* ── Stats ──────────────────────────────────────── */}
+      {/*Stats*/}
       {stats && (
         <div style={{
           display: 'grid',
@@ -87,7 +83,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Query Console Header ───────────────────────── */}
+      {/* Query Console Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{
           fontSize: 32, fontWeight: 800, color: '#ffffff', marginBottom: 8,
@@ -100,7 +96,7 @@ export default function Home() {
         </p>
       </div>
 
-      {/* ── Accordion ──────────────────────────────────── */}
+      {/* Accordion */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {PANELS.map((p) => (
           <AccordionItem
@@ -115,9 +111,7 @@ export default function Home() {
   )
 }
 
-/* ================================================================
-   ACCORDION ITEM
-   ================================================================ */
+/* ACCORDION ITEM*/
 
 function AccordionItem({ meta, isOpen, onToggle }: {
   meta: PanelMeta
@@ -169,9 +163,7 @@ function AccordionItem({ meta, isOpen, onToggle }: {
   )
 }
 
-/* ================================================================
-   PANEL BODY — dispatches to the correct sub-panel
-   ================================================================ */
+/* PANEL BODY — dispatches to the correct sub-panel*/
 
 function PanelBody({ panelId }: { panelId: PanelId }) {
   switch (panelId) {
@@ -217,9 +209,7 @@ const tdStyle: React.CSSProperties = {
   borderBottom: '1px solid #2a2a3a',
 }
 
-/* ================================================================
-   L1 — Person Lookup (MongoDB)
-   ================================================================ */
+/* L1 — Person Lookup (MongoDB)*/
 
 function PanelL1() {
   const [personId, setPersonId] = useState('')
@@ -273,9 +263,7 @@ function PanelL1() {
   )
 }
 
-/* ================================================================
-   L2 — Transfer Chain (Neo4j)
-   ================================================================ */
+/* L2 — Transfer Chain (Neo4j)*/
 
 function PanelL2() {
   const [accountId, setAccountId] = useState('')
@@ -354,9 +342,7 @@ function PanelL2() {
   )
 }
 
-/* ================================================================
-   L3 — Company Portfolio (Cross-DB)
-   ================================================================ */
+/* L3 — Company Portfolio (Cross-DB)*/
 
 function PanelL3() {
   const [companyId, setCompanyId] = useState('')
@@ -420,9 +406,7 @@ function PanelL3() {
   )
 }
 
-/* ================================================================
-   A1 — Company Stats / Blocked by Nation (MongoDB)
-   ================================================================ */
+/*A1 — Company Stats / Blocked by Nation (MongoDB)*/
 
 function PanelA1() {
   const [data, setData] = useState<any[]>([])
@@ -507,9 +491,7 @@ function PanelA1() {
   )
 }
 
-/* ================================================================
-   A2 — Shortest Path (Neo4j)
-   ================================================================ */
+/* A2 — Shortest Path (Neo4j)*/
 
 function PanelA2() {
   const [fromId, setFromId] = useState('')
@@ -577,9 +559,7 @@ function PanelA2() {
   )
 }
 
-/* ================================================================
-   A3 — Laundering Cycle (Cross-DB)
-   ================================================================ */
+/* A3 — Laundering Cycle (Cross-DB)*/
 
 function PanelA3() {
   const [accountId, setAccountId] = useState('')
@@ -677,9 +657,7 @@ function PanelA3() {
   )
 }
 
-/* ================================================================
-   SLIDER HELPER
-   ================================================================ */
+/* SLIDER HELPER */
 
 function SliderInput({ label, min, max, value, onChange }: {
   label: string; min: number; max: number; value: number; onChange: (v: number) => void

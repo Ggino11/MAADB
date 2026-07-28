@@ -124,12 +124,12 @@ def search_entity(
 
     if entity_type == "person":
         results = db.mongo_db.person.find(
-            {"name": {"$regex": q, "$options": "i"}},
-            {"_id": 0, "id": 1, "name": 1, "country": 1}
+            {"name": {"$regex": q, "$options": "i"}}, #option i attiva case insensitive
+            {"_id": 0, "id": 1, "name": 1, "country": 1}#con uno indico sonlo i campi da trovre
         ).limit(limit)
         # Convertiamo l'ID in stringa prima di inviarlo al frontend per evitare
         # la perdita di precisione di JavaScript con i numeri a 64-bit (> Number.MAX_SAFE_INTEGER).
-        return [
+        return [ #costruisco oggetto con attributi che ni servono
             {"id": str(p["id"]), "label": p.get("name") or f"ID: {p['id']}"}
             for p in results
         ]
@@ -140,7 +140,7 @@ def search_entity(
             {"_id": 0, "id": 1, "name": 1, "country": 1}
         ).limit(limit)
         # Come sopra, proteggiamo l'ID 64-bit trasformandolo in stringa per il JSON
-        return [
+        return [ 
             {"id": str(c["id"]), "label": c.get("name") or f"ID: {c['id']}"}
             for c in results
         ]
@@ -149,7 +149,7 @@ def search_entity(
         # Per gli account, cerchiamo il proprietario (persona o azienda) in MongoDB,
         # poi troviamo i loro account in Neo4j.
         
-        # 1. Trova proprietari
+        # 1. Trova le persone il cui nome matcha con q
         owners = list(db.mongo_db.person.find(
             {"name": {"$regex": q, "$options": "i"}},
             {"_id": 0, "id": 1, "name": 1}
@@ -162,14 +162,15 @@ def search_entity(
         
         # Usiamo stringhe come chiavi della mappa per consistenza,
         # e per proteggere gli ID a 64-bit quando verranno inseriti nel JSON finale
-        owner_map = {str(p["id"]): p.get("name") for p in owners}
+        owner_map = {str(p["id"]): p.get("name") for p in owners} #mappa con id->nome
         owner_map.update({str(c["id"]): c.get("name") for c in companies})
         
-        owner_ids = [int(k) for k in owner_map.keys()]
+        owner_ids = [int(k) for k in owner_map.keys()] #predno le chiavi e le riconverto in int
         if not owner_ids:
             return []
             
-        # 2. Trova account di questi proprietari
+        # 2. Trova account di questi proprietari, per ogni if  trova accaunt con relazione owns 
+        #unwind serve a trasformare una lista in più righe, così da poter fare il match con ogni owner_id come "in" in python
         query = """
         UNWIND $owner_ids AS oid
         MATCH (owner {id: oid})-[:OWNS]->(a:Account)
@@ -184,7 +185,7 @@ def search_entity(
                 # arrotondi l'ID distruggendone il valore (es. ...9000).
                 acc_id = str(r["account_id"])
                 own_id = str(r["owner_id"])
-                owner_name = owner_map.get(own_id, "Sconosciuto")
+                owner_name = owner_map.get(own_id, "Sconosciuto")#se non trovo nome
                 accounts.append({
                     "id": acc_id,
                     "label": f"Account {acc_id} — {owner_name}"
@@ -220,14 +221,15 @@ def get_companies_stats():
     pipeline = [
         {
             "$group": {
-                "_id": "$country",
+                "_id": "$country",# ragggruppa per nazione
                 "total_companies": {"$sum": 1},
                 "blocked_companies": {
-                    "$sum": {"$cond": [{"$eq": ["$isBlocked", True]}, 1, 0]}
+                    "$sum": {"$cond": [{"$eq": ["$isBlocked", True]}, 1, 0]} #cond è un if else inline, se isBlocked è true allora somma 1 altrimenti 0
+                    #come COUNT(CASE WHEN isBlocked = true THEN 1 END) in sql
                 }
             }
         },
-        {
+        { #rimodella doc, id diventa cauntry, rimuove id, calcola percentuale, -1 per il sort decrescente
             "$project": {
                 "country": "$_id",
                 "_id": 0,
@@ -301,12 +303,13 @@ def get_suspicious_cycle(
         minLevel: 2,
         maxLevel: $depth
     })
-    YIELD path
+    YIELD path 
     RETURN [n IN nodes(path) | toString(n.id)] AS cycle_accounts
     ORDER BY length(path) DESC
     LIMIT 1
     """
     with db.neo4j_driver.session() as session:
+        #set di nodi per path
         cycle_result = session.run(cycle_query, account_id=account_id, depth=depth).single()
 
     if not cycle_result:
@@ -328,7 +331,7 @@ def get_suspicious_cycle(
 
     # Step 2b: MongoDB — i owner_ids sono già interi
     owner_details = []
-    
+    #cerco con mongo tutti i doc che corrispondono agli id dei owner_ids
     for p in db.mongo_db.person.find(
         {"id": {"$in": owner_ids}},
         {"_id": 0, "id": 1, "name": 1, "country": 1}
@@ -350,7 +353,7 @@ def get_suspicious_cycle(
             "country": c.get("country", "N/A"),
             "type": "Company"
         })
-
+    #creo insieme, se ci sono più nazioni allora è un caso di riciclaggio internazionale
     countries = list({o["country"] for o in owner_details if o["country"] != "N/A"})
 
     return {

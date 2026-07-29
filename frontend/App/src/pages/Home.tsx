@@ -283,28 +283,13 @@ function PanelL2() {
   }
 
   const graphData = useMemo(() => {
-    if (!result || !result.paths) return null
-    const nodesMap = new Map<string, { id: string; label: string; color: string }>()
-    const edges: { from: string; to: string }[] = []
-
-    nodesMap.set(accountId, { id: accountId, label: accountId, color: '#4f46e5' })
-
-    result.paths.forEach((p: any) => {
-      const pathNodes: string[] = p.path_nodes
-      for (let i = 0; i < pathNodes.length; i++) {
-        const nodeId = pathNodes[i]
-        if (!nodesMap.has(nodeId)) {
-          const isTarget = i === pathNodes.length - 1
-          nodesMap.set(nodeId, {
-            id: nodeId, label: nodeId,
-            color: isTarget && p.is_target_blocked ? '#ef4444' : '#64748b',
-          })
-        }
-        if (i > 0) edges.push({ from: pathNodes[i - 1], to: pathNodes[i] })
-      }
-    })
-
-    return { nodes: Array.from(nodesMap.values()), edges }
+    if (!result || !result.nodes) return null
+    const nodes = result.nodes.map((id: string) => ({
+      id, label: id,
+      color: id === accountId ? '#4f46e5' : '#64748b',
+    }))
+    const edges = result.edges.map((e: any) => ({ from: e.source, to: e.target }))
+    return { nodes, edges }
   }, [result, accountId])
 
   return (
@@ -331,9 +316,6 @@ function PanelL2() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#64748b', display: 'inline-block' }} /> Standard
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} /> Bloccata
             </div>
           </div>
         </div>
@@ -593,14 +575,16 @@ function PanelA3() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 18, color: '#f59e0b' }}>⚠️ Ciclo Rilevato!</h3>
-                {result.international_laundering && (
-                  <span style={{
-                    background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '6px 12px',
-                    borderRadius: 20, fontSize: 13, fontWeight: 600,
-                  }}>
-                    Rischio Alto (Cross-Border)
-                  </span>
-                )}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {result.international_laundering && (
+                    <span style={{
+                      background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '6px 12px',
+                      borderRadius: 20, fontSize: 13, fontWeight: 600,
+                    }}>
+                      Rischio Alto (Cross-Border)
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Cycle path */}

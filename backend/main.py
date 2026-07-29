@@ -1,3 +1,5 @@
+import heapq
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from database import db
@@ -51,29 +53,60 @@ def get_person(person_id: int):
 
 # L2 — (Neo4j) Catena di trasferimenti di un conto
 @app.get("/api/lookup/account/{account_id}/transfers")
-def get_account_transfers(account_id: int, hops: int = 2):
-    """Percorre il grafo delle transazioni da un account per N hop.
+def get_account_transfers(
+    account_id: int,
+    hops: int = Query(2, ge=1, le=5, description="Profondità massima della catena di trasferimenti")
+):
+    """Esplora la rete di trasferimenti in uscita da un conto fino a N salti,
+    con una visita a strati (BFS): ogni conto viene espanso una volta sola.
+    Restituisce il sottografo (nodi + archi distinti) raggiungibile, pronto per
+    essere disegnato dal frontend (GraphViewer).
     Utilizzata dalla pagina /transfers (TransferChain).
     """
-    query = f"""
-    MATCH path = (start:Account {{id: $account_id}})-[:TRANSFERS*1..{hops}]->(b:Account)
-    RETURN
-        [n IN nodes(path) | toString(n.id)] AS path_nodes,
-        length(path) AS depth,
-        false AS is_target_blocked
-    ORDER BY depth
-    """
-    with db.neo4j_driver.session() as session:
-        paths = [dict(r) for r in session.run(query, account_id=account_id)]
 
-    if not paths:
+    visited = {account_id}
+    frontier = [account_id]
+    edges = []
+
+    with db.neo4j_driver.session() as session:
+        for _ in range(hops):
+            if not frontier:
+                break  # nessun conto nuovo da esplorare: ci fermiamo prima del limite
+
+            level_query = """
+            UNWIND $frontier AS fid
+            MATCH (a:Account {id: fid})-[:TRANSFERS]->(b:Account)
+            RETURN a.id AS source, b.id AS target
+            """
+            rows = session.run(level_query, frontier=frontier)
+
+            # Un conto va nel prossimo giro solo se non l'abbiamo già visitato
+            
+            next_frontier = []
+            for r in rows:
+                #prendo i nodi
+                src, tgt = r["source"], r["target"]
+                #aggiungo archi
+                edges.append({"source": str(src), "target": str(tgt)})
+                #se il nodo non è stato visitato lo aggiungo alla frontiera
+                if tgt not in visited:
+                    visited.add(tgt)
+                    next_frontier.append(tgt)
+            frontier = next_frontier
+
+    if not edges:
         with db.neo4j_driver.session() as session:
             if not session.run(
                 "MATCH (a:Account {id: $id}) RETURN a LIMIT 1", id=account_id
             ).single():
                 raise HTTPException(status_code=404, detail="Account non trovato")
 
-    return {"account_id": account_id, "hops": hops, "paths": paths}
+    return {
+        "account_id": account_id,
+        "hops": hops,
+        "nodes": [str(i) for i in visited],
+        "edges": edges
+    }
 
 
 # L3 — (Cross-DB) Portafoglio aziendale
@@ -251,24 +284,54 @@ def get_companies_stats():
 
 # A2 — (Neo4j) Shortest path tra due account
 @app.get("/api/analytics/network/shortest-path")
-def get_shortest_path(from_id: int, to_id: int):
-    """Usa l'algoritmo shortestPath nativo di Neo4j per trovare il percorso
-    minimo tra due account nella rete di trasferimenti.
+def get_shortest_path(
+    from_id: int,
+    to_id: int,
+    max_hops: int = Query(10, ge=1, le=15, description="Numero massimo di salti da esplorare")
+):
+    """Usa l'algoritmo shortestPath nativo di Neo4j (ricerca bidirezionale) per
+    trovare il percorso con il minor numero di salti tra due account.
     Utilizzata dalla pagina /shortest-path (ShortestPath).
     """
-    query = """
-    MATCH (start:Account {id: $from_id}), (end:Account {id: $to_id})
-    MATCH path = shortestPath((start)-[:TRANSFERS*]-(end))
+    # Stesso conto su entrambi gli estremi: distanza 0, nessuna query di path serve.
+    if from_id == to_id:
+        with db.neo4j_driver.session() as session:
+            exists = session.run(
+                "MATCH (a:Account {id: $id}) RETURN a LIMIT 1", id=from_id
+            ).single()
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Conto/i non trovato/i: [{from_id}]")
+        return {
+            "from": from_id, "to": to_id,
+            "path_found": True, "jumps": 0, "path": [str(from_id)]
+        }
+    #il tetto *1..max_hops evita di esplorare tutta la rete se i conti non sono connessi; il verso -> segue la direzione reale dei trasferimenti.
+    query = f"""
+    MATCH path = shortestPath(
+        (start:Account {{id: $from_id}})-[:TRANSFERS*1..{max_hops}]->(end:Account {{id: $to_id}})
+    )
     RETURN length(path) AS jumps, [n IN nodes(path) | toString(n.id)] AS path_nodes
     """
     with db.neo4j_driver.session() as session:
         result = session.run(query, from_id=from_id, to_id=to_id).single()
 
     if not result:
+        # Distinguo "conto inesistente"da "nessun percorso entro max_hops".
+        with db.neo4j_driver.session() as session:
+            found_ids = session.run(
+                "MATCH (a:Account) WHERE a.id IN [$from_id, $to_id] RETURN a.id AS id",
+                from_id=from_id, to_id=to_id
+            ).value("id")
+        missing = [i for i in (from_id, to_id) if i not in found_ids]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Conto/i non trovato/i: {missing}"
+            )
         return {
             "from": from_id, "to": to_id,
             "path_found": False,
-            "message": "Nessun percorso trovato tra questi due conti"
+            "message": "Nessun percorso trovato entro il limite di salti impostato"
         }
     return {
         "from": from_id,
@@ -283,55 +346,111 @@ def get_shortest_path(from_id: int, to_id: int):
 @app.get("/api/analytics/suspicious-cycle/{account_id}")
 def get_suspicious_cycle(
     account_id: int,
-    depth: int = Query(3, description="Profondità massima del ciclo")
+    depth: int = Query(3, ge=2, le=6, description="Profondità massima del ciclo")
 ):
-    """Query in due passi:
-      1. Neo4j  > cerca un ciclo chiuso TRANSFERS*2..depth a partire dall'account.
-      2. MongoDB > recupera nome e nazione dei proprietari degli account nel ciclo.
-    Restituisce anche il flag 'international_laundering' se coinvolte più nazioni.
+    """Trova, tra le catene di trasferimenti che partono da un conto e vi tornano
+    entro `depth` salti, quella dove i soldi cambiano meno da un passaggio
+    all'altro (il segnale di un vero giro di riciclaggio, dove l'importo si
+    conserva quasi invariato lungo il ciclo). Usa Dijkstra
     Utilizzata dalla pagina /laundering-cycle (LaunderingCycle).
     """
-    # Step 1: Neo4j — ricerca ciclo; i nodi del path vengono restituiti come int
-    # terminate node start per permmetere di rivisitare il nodo di partenza 
-    # uniqueness: "RELATIONSHIP_PATH" evita cicli multipli tra gli stessi nodi
-    cycle_query = """
-    MATCH (start:Account {id: $account_id})
-    CALL apoc.path.expandConfig(start, {
-        relationshipFilter: "TRANSFERS>",
-        terminatorNodes: [start],
-        uniqueness: "RELATIONSHIP_PATH",
-        minLevel: 2,
-        maxLevel: $depth
-    })
-    YIELD path 
-    RETURN [n IN nodes(path) | toString(n.id)] AS cycle_accounts
-    ORDER BY length(path) DESC
-    LIMIT 1
-    """
-    with db.neo4j_driver.session() as session:
-        #set di nodi per path
-        cycle_result = session.run(cycle_query, account_id=account_id, depth=depth).single()
 
-    if not cycle_result:
+    # Un ciclo richiede almeno un TRANSFERS in uscita e uno in entrata su "start";
+    # se manca l'uno o l'altro evitiamo di esplorare il grafo inutilmente.
+    with db.neo4j_driver.session() as session:
+        pre_check = session.run(
+            """
+            MATCH (start:Account {id: $id})
+            RETURN EXISTS { (start)-[:TRANSFERS]->() } AS has_out,
+                   EXISTS { ()-[:TRANSFERS]->(start) } AS has_in
+            """,
+            id=account_id
+        ).single()
+
+    if not pre_check:
+        raise HTTPException(status_code=404, detail="Conto non trovato")
+
+    if not pre_check["has_out"] or not pre_check["has_in"]:
         return {"account_id": account_id, "suspicious_cycle_found": False}
 
-    cycle_account_ids = list(set(cycle_result["cycle_accounts"]))
-
-    # Step 2a: Neo4j — proprietari degli account nel ciclo (id come int)
-    owners_query = """
-    UNWIND $account_ids AS acc_id
-    MATCH (owner)-[:OWNS]->(a:Account {id: acc_id})
-    RETURN owner.id AS owner_id, labels(owner)[0] AS owner_type
-    """
+    # Dijkstra sul "grafo delle transazioni"
     with db.neo4j_driver.session() as session:
-        owner_ids = [
-            r["owner_id"]
-            for r in session.run(owners_query, account_ids=cycle_account_ids)
-        ]
+        #dizionario con id->lista trasf in uscita
+        #es: 1->[(2,100),(3,200),(4,300)]
+        out_edges_cache = {}
 
-    # Step 2b: MongoDB — i owner_ids sono già interi
+        def out_edges(acc_id): #funzione che restituisce la lista di trasf in uscita da un conto
+            if acc_id not in out_edges_cache:
+                rows = session.run(
+                    "MATCH (:Account {id: $id})-[r:TRANSFERS]->(next:Account) "
+                    "RETURN next.id AS next_id, r.amount AS amount",
+                    id=acc_id
+                )
+                #trasformo il lista di coppie
+                out_edges_cache[acc_id] = [(r["next_id"], r["amount"]) for r in rows]
+            return out_edges_cache[acc_id]
+
+        heap = []
+        # per ogni conto in uscita viene aggiunto all'heap con costo 0.0 e hops 1
+        for next_id, amount in out_edges(account_id):
+            if next_id != account_id:
+                heapq.heappush(heap, (0.0, next_id, amount, 1, (account_id, next_id), (amount,)))
+
+        settled = set()
+        best_cycle = None
+
+        # fino a che non esaurisco i conti o non trovo un ciclo
+        while heap:
+            # prendo la tupla col costo più basso rimasta in coda
+            cost, current_id, current_amount, hops, chain_ids, amounts = heapq.heappop(heap)
+
+            # questo conto, a questo numero di salti, l'ho già processato? salto
+            if (current_id, hops) in settled:
+                continue
+            settled.add((current_id, hops))  # lo segno come fatto
+
+            # sono tornato su start con almeno 2 salti? ciclo trovato, è il migliore possibile
+            if current_id == account_id and hops >= 2:
+                best_cycle = {"chain_ids": chain_ids, "amounts": amounts, "cost": cost}
+                break
+
+            # ho finito i salti disponibili, da qui non posso più andare avanti
+            if hops >= depth:
+                continue
+
+            # provo tutti i trasferimenti in uscita di questo conto
+            for next_id, next_amount in out_edges(current_id):
+                # quanto cambia l'importo rispetto all'ultimo salto fatto
+                step_cost = abs(next_amount - current_amount) / current_amount
+                # nuova tupla: costo aggiornato, un salto in più,
+                # catena di conti e di importi allungata di uno
+                heapq.heappush(heap, (
+                    cost + step_cost, next_id, next_amount, hops + 1,
+                    #catens di conti visti fino a qwul momento
+                    chain_ids + (next_id,), amounts + (next_amount,)
+                ))
+
+    if best_cycle is None:
+        return {"account_id": account_id, "suspicious_cycle_found": False}
+
+    # cycle_accounts come stringhe: solo per il frontend, in JS gli id numerici
+    # grandi perdono precisione (Number.MAX_SAFE_INTEGER).
+    cycle_accounts = [str(i) for i in best_cycle["chain_ids"]]
+
+    with db.neo4j_driver.session() as session:
+        owner_ids = [r["owner_id"] for r in session.run(
+            """
+            UNWIND $ids AS acc_id
+            MATCH (owner)-[:OWNS]->(:Account {id: acc_id})
+            RETURN DISTINCT owner.id AS owner_id
+            """,
+            ids=list(best_cycle["chain_ids"])
+        )]
+
+    # Ora andiamo su MongoDB a recuperare nome e nazione di ogni proprietario.
+    # Un conto può appartenere a una Person o a una Company, quindi controlliamo entrambe
+    # le collection e mettiamo tutto insieme in un'unica lista.
     owner_details = []
-    #cerco con mongo tutti i doc che corrispondono agli id dei owner_ids
     for p in db.mongo_db.person.find(
         {"id": {"$in": owner_ids}},
         {"_id": 0, "id": 1, "name": 1, "country": 1}
@@ -353,14 +472,17 @@ def get_suspicious_cycle(
             "country": c.get("country", "N/A"),
             "type": "Company"
         })
-    #creo insieme, se ci sono più nazioni allora è un caso di riciclaggio internazionale
+
+    # Set comprehension: per ogni owner "o" nella lista owner_details prendo o["country"],
+    # scartando quelli con country "N/A"; e le nazioni ripetute in quantoè uin set
+    # Se alla fine ci sono più nazioni diverse, allora è un caso di riciclaggio internazionale.
     countries = list({o["country"] for o in owner_details if o["country"] != "N/A"})
 
     return {
         "account_id": account_id,
         "suspicious_cycle_found": True,
-        "cycle_length": len(cycle_result["cycle_accounts"]) - 1,
-        "cycle_path": cycle_result["cycle_accounts"],
+        "cycle_length": len(cycle_accounts) - 1,
+        "cycle_path": cycle_accounts,
         "owners": owner_details,
         "international_laundering": len(countries) > 1,
         "nations_involved": countries
